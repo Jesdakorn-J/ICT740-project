@@ -4,7 +4,7 @@ import time
 
 
 def main():
-    camera_index = 0          # usually /dev/video0
+    camera_index = 1          # usually /dev/video0
     width = 640
     height = 480
 
