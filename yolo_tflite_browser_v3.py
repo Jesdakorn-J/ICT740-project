@@ -2,14 +2,14 @@ import cv2
 import tflite_runtime.interpreter as tflite
 import numpy as np
 
-CAMERA_WIDTH = 640
-CAMERA_HEIGHT = 480
+CAMERA_WIDTH = 320
+CAMERA_HEIGHT = 320
 
 cap = cv2.VideoCapture(1)
 cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
 
-DETECTION_MODEL_PATH = 'DetectionModel.tflite'
+DETECTION_MODEL_PATH = 'yolov8n_int8.tflite'
 
 colors = [
     (47, 255, 173), (255, 255, 0), (71, 99, 255), (211, 85, 186), (180, 105, 255),
