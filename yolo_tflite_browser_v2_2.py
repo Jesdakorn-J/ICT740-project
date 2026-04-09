@@ -287,7 +287,7 @@ def filter_detections_by_area(boxes, scores, class_ids, area):
 def draw_detections(frame, boxes, scores, class_ids, labels):
     ax1, ay1, ax2, ay2 = DETECTION_AREA
 
-    # Blue area box
+    # Blue detection box
     cv2.rectangle(frame, (ax1, ay1), (ax2, ay2), (255, 0, 0), 2)
     cv2.putText(
         frame,
@@ -300,20 +300,21 @@ def draw_detections(frame, boxes, scores, class_ids, labels):
         cv2.LINE_AA
     )
 
+    # Draw detections
     for i, (box, score, cls_id) in enumerate(zip(boxes, scores, class_ids)):
         x1, y1, x2, y2 = box.astype(int)
 
-        # red object box
+        # red bounding box on object
         cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
 
         cls_name = labels[int(cls_id)] if 0 <= int(cls_id) < len(labels) else str(int(cls_id))
         text = f"{cls_name} {score:.2f}"
 
-        # place label INSIDE the blue box
+        # GREEN label box INSIDE blue area
         tx = ax1 + 8
-        ty = ay1 + 25 + (i * 22)
+        ty = ay1 + 28 + (i * 24)
 
-        # keep label from going below blue box
+        # stop if too many labels to fit inside the blue box
         if ty > ay2 - 8:
             break
 
@@ -321,9 +322,9 @@ def draw_detections(frame, boxes, scores, class_ids, labels):
 
         cv2.rectangle(
             frame,
-            (tx - 2, ty - th - 4),
-            (tx + tw + 2, ty + baseline - 2),
-            (255, 0, 0),
+            (tx - 3, ty - th - 5),
+            (tx + tw + 3, ty + baseline - 2),
+            (0, 255, 0),
             -1
         )
         cv2.putText(
@@ -332,7 +333,7 @@ def draw_detections(frame, boxes, scores, class_ids, labels):
             (tx, ty - 2),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.55,
-            (255, 255, 255),
+            (0, 0, 0),
             1,
             cv2.LINE_AA
         )
