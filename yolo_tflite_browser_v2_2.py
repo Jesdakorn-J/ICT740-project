@@ -31,8 +31,8 @@ COCO80 = [
     "toothbrush"
 ]
 
-# Better test area for your bottle example
-DETECTION_AREA = (110, 110, 280, 315)  # x1, y1, x2, y2
+# x1, y1, x2, y2
+DETECTION_AREA = (110, 110, 280, 315)
 
 
 def get_ip_addresses() -> List[Tuple[str, str]]:
@@ -70,7 +70,8 @@ def letterbox(image: np.ndarray, new_shape=(640, 640), color=(114, 114, 114)):
     new_h, new_w = new_shape
 
     r = min(new_w / w, new_h / h)
-    resized_w, resized_h = int(round(w * r)), int(round(h * r))
+    resized_w = int(round(w * r))
+    resized_h = int(round(h * r))
 
     resized = cv2.resize(image, (resized_w, resized_h), interpolation=cv2.INTER_LINEAR)
 
@@ -121,16 +122,28 @@ def nms(boxes: np.ndarray, scores: np.ndarray, iou_thres: float) -> List[int]:
     return keep
 
 
-class YoloV8EdgeTPU:
-    def __init__(self, model_path: str, conf_thres=0.05, iou_thres=0.45):
+class YoloV8TFLite:
+    def __init__(self, model_path: str, conf_thres=0.01, iou_thres=0.45, try_tpu=True):
         self.model_path = model_path
         self.conf_thres = conf_thres
         self.iou_thres = iou_thres
+        self.using_tpu = False
 
-        self.interpreter = Interpreter(
-            model_path=model_path,
-            experimental_delegates=[load_delegate("libedgetpu.so.1")]
-        )
+        if try_tpu:
+            try:
+                self.interpreter = Interpreter(
+                    model_path=model_path,
+                    experimental_delegates=[load_delegate("libedgetpu.so.1")]
+                )
+                self.using_tpu = True
+                print("Using EdgeTPU delegate")
+            except Exception as e:
+                print(f"EdgeTPU load failed, falling back to CPU: {e}")
+                self.interpreter = Interpreter(model_path=model_path)
+        else:
+            self.interpreter = Interpreter(model_path=model_path)
+            print("Using CPU interpreter")
+
         self.interpreter.allocate_tensors()
 
         self.input_details = self.interpreter.get_input_details()
@@ -146,6 +159,9 @@ class YoloV8EdgeTPU:
         self.input_dtype = self.input_details[0]["dtype"]
         self.input_quant = self.input_details[0]["quantization"]
         self.output_quant = self.output_details[0]["quantization"]
+
+        print(f"Model input size: {self.in_w}x{self.in_h}")
+        print(f"Input dtype: {self.input_dtype}, output dtype: {self.output_details[0]['dtype']}")
 
     def preprocess(self, frame: np.ndarray):
         img, ratio, pad_x, pad_y = letterbox(frame, (self.in_h, self.in_w))
@@ -277,18 +293,16 @@ def filter_detections_by_area(boxes, scores, class_ids, area):
             filtered_class_ids.append(cls_id)
 
     if filtered_boxes:
-        # sort highest confidence first
         order = np.argsort(filtered_scores)[::-1]
         filtered_boxes = np.array(filtered_boxes)[order]
         filtered_scores = np.array(filtered_scores)[order]
         filtered_class_ids = np.array(filtered_class_ids)[order]
-
         return filtered_boxes, filtered_scores, filtered_class_ids
 
     return np.empty((0, 4)), np.array([]), np.array([])
 
 
-def draw_detections(frame, boxes, scores, class_ids, labels):
+def draw_detections(frame, area_boxes, area_scores, area_class_ids, labels):
     ax1, ay1, ax2, ay2 = DETECTION_AREA
 
     cv2.rectangle(frame, (ax1, ay1), (ax2, ay2), (255, 0, 0), 2)
@@ -305,7 +319,7 @@ def draw_detections(frame, boxes, scores, class_ids, labels):
 
     results = []
 
-    for box, score, cls_id in zip(boxes, scores, class_ids):
+    for box, score, cls_id in zip(area_boxes, area_scores, area_class_ids):
         x1, y1, x2, y2 = box.astype(int)
         cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
 
@@ -413,10 +427,11 @@ def make_app(state: StreamState):
 
 
 def camera_worker(args, state: StreamState):
-    model = YoloV8EdgeTPU(
+    model = YoloV8TFLite(
         model_path=args.model,
         conf_thres=args.conf,
         iou_thres=args.iou,
+        try_tpu=not args.cpu_only,
     )
 
     cap = cv2.VideoCapture(args.camera)
@@ -434,16 +449,19 @@ def camera_worker(args, state: StreamState):
             time.sleep(0.01)
             continue
 
-        boxes, scores, class_ids = model.infer(frame)
-        boxes, scores, class_ids = filter_detections_by_area(
-            boxes, scores, class_ids, DETECTION_AREA
+        all_boxes, all_scores, all_class_ids = model.infer(frame)
+        area_boxes, area_scores, area_class_ids = filter_detections_by_area(
+            all_boxes, all_scores, all_class_ids, DETECTION_AREA
         )
 
-        print("detections in area:", [
-            (COCO80[int(c)], round(float(s), 3)) for s, c in zip(scores, class_ids)
+        print("ALL detections:", [
+            (COCO80[int(c)], round(float(s), 3)) for s, c in zip(all_scores, all_class_ids)
+        ])
+        print("Detections in area:", [
+            (COCO80[int(c)], round(float(s), 3)) for s, c in zip(area_scores, area_class_ids)
         ])
 
-        draw_detections(frame, boxes, scores, class_ids, COCO80)
+        draw_detections(frame, area_boxes, area_scores, area_class_ids, COCO80)
 
         now = time.time()
         dt = now - prev_t
@@ -473,14 +491,15 @@ def camera_worker(args, state: StreamState):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", default="yolov8n_full_integer_quant_edgetpu.tflite",
-                        help="Path to EdgeTPU YOLOv8 TFLite model")
+                        help="Path to TFLite model")
     parser.add_argument("--camera", type=int, default=1, help="USB camera index")
     parser.add_argument("--width", type=int, default=640, help="Camera width")
     parser.add_argument("--height", type=int, default=480, help="Camera height")
     parser.add_argument("--host", default="0.0.0.0", help="Flask bind host")
     parser.add_argument("--port", type=int, default=5000, help="Flask port")
-    parser.add_argument("--conf", type=float, default=0.05, help="Confidence threshold")
+    parser.add_argument("--conf", type=float, default=0.01, help="Confidence threshold")
     parser.add_argument("--iou", type=float, default=0.45, help="NMS IoU threshold")
+    parser.add_argument("--cpu-only", action="store_true", help="Disable EdgeTPU and use CPU only")
     args = parser.parse_args()
 
     if not os.path.exists(args.model):
