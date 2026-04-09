@@ -31,7 +31,8 @@ COCO80 = [
     "toothbrush"
 ]
 
-DETECTION_AREA = (80, 80, 260, 260)  # x1, y1, x2, y2
+# Better test area for your bottle example
+DETECTION_AREA = (110, 110, 280, 315)  # x1, y1, x2, y2
 
 
 def get_ip_addresses() -> List[Tuple[str, str]]:
@@ -121,7 +122,7 @@ def nms(boxes: np.ndarray, scores: np.ndarray, iou_thres: float) -> List[int]:
 
 
 class YoloV8EdgeTPU:
-    def __init__(self, model_path: str, conf_thres=0.15, iou_thres=0.45):
+    def __init__(self, model_path: str, conf_thres=0.05, iou_thres=0.45):
         self.model_path = model_path
         self.conf_thres = conf_thres
         self.iou_thres = iou_thres
@@ -265,7 +266,6 @@ def filter_detections_by_area(boxes, scores, class_ids, area):
     for box, score, cls_id in zip(boxes, scores, class_ids):
         x1, y1, x2, y2 = box.astype(int)
 
-        # keep detection if any part overlaps the blue box
         overlap_x1 = max(x1, ax1)
         overlap_y1 = max(y1, ay1)
         overlap_x2 = min(x2, ax2)
@@ -277,11 +277,13 @@ def filter_detections_by_area(boxes, scores, class_ids, area):
             filtered_class_ids.append(cls_id)
 
     if filtered_boxes:
-        return (
-            np.array(filtered_boxes),
-            np.array(filtered_scores),
-            np.array(filtered_class_ids),
-        )
+        # sort highest confidence first
+        order = np.argsort(filtered_scores)[::-1]
+        filtered_boxes = np.array(filtered_boxes)[order]
+        filtered_scores = np.array(filtered_scores)[order]
+        filtered_class_ids = np.array(filtered_class_ids)[order]
+
+        return filtered_boxes, filtered_scores, filtered_class_ids
 
     return np.empty((0, 4)), np.array([]), np.array([])
 
@@ -310,7 +312,6 @@ def draw_detections(frame, boxes, scores, class_ids, labels):
         cls_name = labels[int(cls_id)] if 0 <= int(cls_id) < len(labels) else str(int(cls_id))
         results.append(f"{cls_name} {score:.2f}")
 
-    # draw result list inside the blue box
     if results:
         for i, text in enumerate(results):
             tx = ax1 + 8
@@ -438,6 +439,10 @@ def camera_worker(args, state: StreamState):
             boxes, scores, class_ids, DETECTION_AREA
         )
 
+        print("detections in area:", [
+            (COCO80[int(c)], round(float(s), 3)) for s, c in zip(scores, class_ids)
+        ])
+
         draw_detections(frame, boxes, scores, class_ids, COCO80)
 
         now = time.time()
@@ -470,11 +475,11 @@ def main():
     parser.add_argument("--model", default="yolov8n_full_integer_quant_edgetpu.tflite",
                         help="Path to EdgeTPU YOLOv8 TFLite model")
     parser.add_argument("--camera", type=int, default=1, help="USB camera index")
-    parser.add_argument("--width", type=int, default=320, help="Camera width")
-    parser.add_argument("--height", type=int, default=320, help="Camera height")
+    parser.add_argument("--width", type=int, default=640, help="Camera width")
+    parser.add_argument("--height", type=int, default=480, help="Camera height")
     parser.add_argument("--host", default="0.0.0.0", help="Flask bind host")
     parser.add_argument("--port", type=int, default=5000, help="Flask port")
-    parser.add_argument("--conf", type=float, default=0.15, help="Confidence threshold")
+    parser.add_argument("--conf", type=float, default=0.05, help="Confidence threshold")
     parser.add_argument("--iou", type=float, default=0.45, help="NMS IoU threshold")
     args = parser.parse_args()
 
