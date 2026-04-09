@@ -13,11 +13,10 @@ from flask import Flask, Response
 try:
     from tflite_runtime.interpreter import Interpreter, load_delegate
 except ImportError:
-    from tensorflow.lite.python.interpreter import Interpreter  # fallback
+    from tensorflow.lite.python.interpreter import Interpreter
     from tensorflow.lite.python.interpreter import load_delegate
 
 
-# COCO 80-class names used by YOLOv8n
 COCO80 = [
     "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat",
     "traffic light", "fire hydrant", "stop sign", "parking meter", "bench", "bird", "cat",
@@ -32,8 +31,7 @@ COCO80 = [
     "toothbrush"
 ]
 
-# Only detections whose CENTER falls inside this box will be shown
-# Format: (x1, y1, x2, y2)
+# x1, y1, x2, y2
 DETECTION_AREA = (80, 80, 260, 260)
 
 
@@ -48,7 +46,6 @@ def get_ip_addresses() -> List[Tuple[str, str]]:
     except Exception:
         pass
 
-    # Also try common interface lookup by connecting outward
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.connect(("8.8.8.8", 80))
@@ -59,7 +56,6 @@ def get_ip_addresses() -> List[Tuple[str, str]]:
     except Exception:
         pass
 
-    # Remove duplicates by IP
     seen = set()
     uniq = []
     for name, ip in results:
@@ -69,11 +65,7 @@ def get_ip_addresses() -> List[Tuple[str, str]]:
     return uniq
 
 
-def letterbox(
-    image: np.ndarray,
-    new_shape=(640, 640),
-    color=(114, 114, 114)
-):
+def letterbox(image: np.ndarray, new_shape=(640, 640), color=(114, 114, 114)):
     h, w = image.shape[:2]
     new_h, new_w = new_shape
 
@@ -90,8 +82,7 @@ def letterbox(
     right = pad_w - left
 
     out = cv2.copyMakeBorder(
-        resized, top, bottom, left, right,
-        cv2.BORDER_CONSTANT, value=color
+        resized, top, bottom, left, right, cv2.BORDER_CONSTANT, value=color
     )
     return out, r, left, top
 
@@ -149,12 +140,11 @@ class YoloV8EdgeTPU:
         self.output_index = self.output_details[0]["index"]
 
         input_shape = self.input_details[0]["shape"]
-        # usually [1, H, W, 3]
         self.in_h = int(input_shape[1])
         self.in_w = int(input_shape[2])
 
         self.input_dtype = self.input_details[0]["dtype"]
-        self.input_quant = self.input_details[0]["quantization"]  # (scale, zero_point)
+        self.input_quant = self.input_details[0]["quantization"]
         self.output_quant = self.output_details[0]["quantization"]
 
     def preprocess(self, frame: np.ndarray):
@@ -181,7 +171,6 @@ class YoloV8EdgeTPU:
         self.interpreter.invoke()
         out = self.interpreter.get_tensor(self.output_index)
 
-        # dequantize if needed
         if self.output_details[0]["dtype"] == np.uint8:
             scale, zero = self.output_quant
             if scale != 0:
@@ -195,24 +184,18 @@ class YoloV8EdgeTPU:
         return boxes, scores, class_ids
 
     def decode_yolov8_output(self, output, orig_w, orig_h, ratio, pad_x, pad_y):
-        """
-        Handles common YOLOv8 TFLite output layouts:
-          [1, 84, 8400] or [1, 8400, 84]
-        84 = 4 box values + 80 class scores
-        """
         pred = np.squeeze(output)
 
         if pred.ndim != 2:
             raise RuntimeError(f"Unexpected output shape after squeeze: {pred.shape}")
 
         if pred.shape[0] in (84, 85) and pred.shape[1] > 100:
-            pred = pred.T  # -> [N, C]
+            pred = pred.T
         elif pred.shape[1] in (84, 85):
             pass
         else:
             raise RuntimeError(f"Unsupported YOLOv8 output shape: {pred.shape}")
 
-        # YOLOv8 export usually has no objectness in TFLite head: [x, y, w, h, cls...]
         boxes_xywh = pred[:, :4]
         class_scores = pred[:, 4:]
 
@@ -227,7 +210,6 @@ class YoloV8EdgeTPU:
         if len(boxes_xywh) == 0:
             return np.empty((0, 4)), np.array([]), np.array([])
 
-        # xywh -> xyxy on letterboxed input scale
         x = boxes_xywh[:, 0]
         y = boxes_xywh[:, 1]
         w = boxes_xywh[:, 2]
@@ -238,7 +220,6 @@ class YoloV8EdgeTPU:
         x2 = x + w / 2
         y2 = y + h / 2
 
-        # Undo letterbox
         x1 = (x1 - pad_x) / ratio
         y1 = (y1 - pad_y) / ratio
         x2 = (x2 - pad_x) / ratio
@@ -251,7 +232,6 @@ class YoloV8EdgeTPU:
 
         boxes = np.stack([x1, y1, x2, y2], axis=1)
 
-        # class-wise NMS
         final_boxes = []
         final_scores = []
         final_class_ids = []
@@ -286,7 +266,6 @@ def filter_detections_by_area(boxes, scores, class_ids, area):
     for box, score, cls_id in zip(boxes, scores, class_ids):
         x1, y1, x2, y2 = box.astype(int)
 
-        # Keep only detections whose center point is inside the area
         cx = (x1 + x2) // 2
         cy = (y1 + y2) // 2
 
@@ -308,7 +287,7 @@ def filter_detections_by_area(boxes, scores, class_ids, area):
 def draw_detections(frame, boxes, scores, class_ids, labels):
     ax1, ay1, ax2, ay2 = DETECTION_AREA
 
-    # Draw the detection area itself
+    # Blue area box
     cv2.rectangle(frame, (ax1, ay1), (ax2, ay2), (255, 0, 0), 2)
     cv2.putText(
         frame,
@@ -321,30 +300,39 @@ def draw_detections(frame, boxes, scores, class_ids, labels):
         cv2.LINE_AA
     )
 
-    for box, score, cls_id in zip(boxes, scores, class_ids):
+    for i, (box, score, cls_id) in enumerate(zip(boxes, scores, class_ids)):
         x1, y1, x2, y2 = box.astype(int)
 
+        # red object box
         cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
 
         cls_name = labels[int(cls_id)] if 0 <= int(cls_id) < len(labels) else str(int(cls_id))
         text = f"{cls_name} {score:.2f}"
 
-        (tw, th), baseline = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
-        y_text = max(y1, th + 4)
+        # place label INSIDE the blue box
+        tx = ax1 + 8
+        ty = ay1 + 25 + (i * 22)
+
+        # keep label from going below blue box
+        if ty > ay2 - 8:
+            break
+
+        (tw, th), baseline = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 1)
+
         cv2.rectangle(
             frame,
-            (x1, y_text - th - 4),
-            (x1 + tw, y_text + baseline - 4),
-            (0, 0, 255),
+            (tx - 2, ty - th - 4),
+            (tx + tw + 2, ty + baseline - 2),
+            (255, 0, 0),
             -1
         )
         cv2.putText(
             frame,
             text,
-            (x1, y_text - 2),
+            (tx, ty - 2),
             cv2.FONT_HERSHEY_SIMPLEX,
-            0.5,
-            (0, 0, 0),
+            0.55,
+            (255, 255, 255),
             1,
             cv2.LINE_AA
         )
@@ -423,8 +411,6 @@ def camera_worker(args, state: StreamState):
             continue
 
         boxes, scores, class_ids = model.infer(frame)
-
-        # Only keep detections inside the detection area
         boxes, scores, class_ids = filter_detections_by_area(
             boxes, scores, class_ids, DETECTION_AREA
         )
