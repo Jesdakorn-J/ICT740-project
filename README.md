@@ -6,6 +6,7 @@
 <p>3.model               </p>
 <p>4.area detection      </p>
 <p>5.send notification    </p>
+<p>6.write medium blog    </p>
 
 # current works
 <p>yolo_tflite_browser_v1.py</p>
