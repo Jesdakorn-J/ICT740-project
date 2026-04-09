@@ -17,6 +17,7 @@ except ImportError:
     from tensorflow.lite.python.interpreter import load_delegate
 
 
+# COCO 80-class names used by YOLOv8n
 COCO80 = [
     "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat",
     "traffic light", "fire hydrant", "stop sign", "parking meter", "bench", "bird", "cat",
@@ -30,6 +31,9 @@ COCO80 = [
     "refrigerator", "book", "clock", "vase", "scissors", "teddy bear", "hair drier",
     "toothbrush"
 ]
+
+# Detection area: (x1, y1, x2, y2)
+DETECTION_AREA = (80, 80, 260, 260)
 
 
 def get_ip_addresses() -> List[Tuple[str, str]]:
@@ -62,12 +66,17 @@ def get_ip_addresses() -> List[Tuple[str, str]]:
     return uniq
 
 
-def letterbox(image: np.ndarray, new_shape=(640, 640), color=(114, 114, 114)):
+def letterbox(
+    image: np.ndarray,
+    new_shape=(640, 640),
+    color=(114, 114, 114)
+):
     h, w = image.shape[:2]
     new_h, new_w = new_shape
 
     r = min(new_w / w, new_h / h)
     resized_w, resized_h = int(round(w * r)), int(round(h * r))
+
     resized = cv2.resize(image, (resized_w, resized_h), interpolation=cv2.INTER_LINEAR)
 
     pad_w = new_w - resized_w
@@ -116,30 +125,22 @@ def nms(boxes: np.ndarray, scores: np.ndarray, iou_thres: float) -> List[int]:
 
 
 class YoloV8EdgeTPU:
-    def __init__(self, model_path: str, conf_thres=0.25, iou_thres=0.45, labels=None, debug=False):
+    def __init__(self, model_path: str, conf_thres=0.25, iou_thres=0.45):
         self.model_path = model_path
         self.conf_thres = conf_thres
         self.iou_thres = iou_thres
-        self.labels = labels or COCO80
-        self.debug = debug
-        self._logged_shapes = False
 
-        delegates = []
-        try:
-            delegates = [load_delegate("libedgetpu.so.1")]
-            if self.debug:
-                print("Loaded EdgeTPU delegate")
-        except Exception as e:
-            print(f"Warning: could not load EdgeTPU delegate: {e}")
-            print("Falling back to CPU TFLite interpreter")
-
-        self.interpreter = Interpreter(model_path=model_path, experimental_delegates=delegates)
+        self.interpreter = Interpreter(
+            model_path=model_path,
+            experimental_delegates=[load_delegate("libedgetpu.so.1")]
+        )
         self.interpreter.allocate_tensors()
 
         self.input_details = self.interpreter.get_input_details()
         self.output_details = self.interpreter.get_output_details()
 
         self.input_index = self.input_details[0]["index"]
+        self.output_index = self.output_details[0]["index"]
 
         input_shape = self.input_details[0]["shape"]
         self.in_h = int(input_shape[1])
@@ -147,14 +148,7 @@ class YoloV8EdgeTPU:
 
         self.input_dtype = self.input_details[0]["dtype"]
         self.input_quant = self.input_details[0]["quantization"]
-
-        if self.debug:
-            print("Input details:")
-            for d in self.input_details:
-                print(f"  shape={d['shape']} dtype={d['dtype']} quant={d['quantization']}")
-            print("Output details:")
-            for i, d in enumerate(self.output_details):
-                print(f"  [{i}] shape={d['shape']} dtype={d['dtype']} quant={d['quantization']}")
+        self.output_quant = self.output_details[0]["quantization"]
 
     def preprocess(self, frame: np.ndarray):
         img, ratio, pad_x, pad_y = letterbox(frame, (self.in_h, self.in_w))
@@ -166,28 +160,11 @@ class YoloV8EdgeTPU:
                 inp = rgb.astype(np.uint8)
             else:
                 inp = np.clip(np.round(rgb / scale + zero), 0, 255).astype(np.uint8)
-        elif self.input_dtype == np.int8:
-            scale, zero = self.input_quant
-            if scale == 0:
-                inp = rgb.astype(np.int8)
-            else:
-                inp = np.clip(np.round(rgb / scale + zero), -128, 127).astype(np.int8)
         else:
             inp = rgb.astype(np.float32) / 255.0
 
         inp = np.expand_dims(inp, axis=0)
         return inp, ratio, pad_x, pad_y
-
-    def _get_output_tensor(self, detail):
-        out = self.interpreter.get_tensor(detail["index"])
-        dtype = detail["dtype"]
-        scale, zero = detail.get("quantization", (0.0, 0))
-
-        if dtype == np.uint8 and scale != 0:
-            return (out.astype(np.float32) - zero) * scale
-        if dtype == np.int8 and scale != 0:
-            return (out.astype(np.float32) - zero) * scale
-        return out.astype(np.float32) if dtype != np.float32 else out
 
     def infer(self, frame: np.ndarray):
         orig_h, orig_w = frame.shape[:2]
@@ -195,119 +172,36 @@ class YoloV8EdgeTPU:
 
         self.interpreter.set_tensor(self.input_index, inp)
         self.interpreter.invoke()
-        outputs = [self._get_output_tensor(d) for d in self.output_details]
+        out = self.interpreter.get_tensor(self.output_index)
 
-        if self.debug and not self._logged_shapes:
-            print("Runtime output shapes:", [o.shape for o in outputs])
-            self._logged_shapes = True
+        if self.output_details[0]["dtype"] == np.uint8:
+            scale, zero = self.output_quant
+            if scale != 0:
+                out = (out.astype(np.float32) - zero) * scale
+            else:
+                out = out.astype(np.float32)
 
-        boxes, scores, class_ids = self.decode_output(outputs, orig_w, orig_h, ratio, pad_x, pad_y)
+        boxes, scores, class_ids = self.decode_yolov8_output(out, orig_w, orig_h, ratio, pad_x, pad_y)
         return boxes, scores, class_ids
 
-    def decode_output(self, outputs, orig_w, orig_h, ratio, pad_x, pad_y):
-        if len(outputs) >= 3:
-            decoded = self.try_decode_detection_api(outputs, orig_w, orig_h)
-            if decoded is not None:
-                return decoded
-
-        for out in outputs:
-            decoded = self.try_decode_yolo_matrix(out, orig_w, orig_h, ratio, pad_x, pad_y)
-            if decoded is not None:
-                return decoded
-
-        if self.debug:
-            print("Could not decode model outputs. Shapes were:", [o.shape for o in outputs])
-        return np.empty((0, 4)), np.array([]), np.array([])
-
-    def try_decode_detection_api(self, outputs, orig_w, orig_h):
-        """Handles TFLite Detection_PostProcess style outputs:
-        boxes [1,N,4], classes [1,N], scores [1,N], count [1]
-        """
-        boxes = classes = scores = count = None
-
-        for out in outputs:
-            s = tuple(out.shape)
-            if len(s) == 3 and s[0] == 1 and s[-1] == 4:
-                boxes = np.squeeze(out, axis=0)
-            elif len(s) == 2 and s[0] == 1:
-                arr = np.squeeze(out, axis=0)
-                if np.issubdtype(arr.dtype, np.floating):
-                    if np.all(arr >= 0) and np.all(arr <= 1.01):
-                        scores = arr
-                    else:
-                        classes = arr.astype(np.int32)
-                else:
-                    classes = arr.astype(np.int32)
-            elif np.size(out) == 1:
-                count = int(np.squeeze(out))
-
-        if boxes is None or classes is None or scores is None:
-            return None
-
-        n = min(len(boxes), len(classes), len(scores))
-        if count is not None:
-            n = min(n, count)
-
-        boxes = boxes[:n]
-        classes = classes[:n].astype(np.int32)
-        scores = scores[:n]
-
-        mask = scores >= self.conf_thres
-        boxes = boxes[mask]
-        classes = classes[mask]
-        scores = scores[mask]
-
-        if len(boxes) == 0:
-            return np.empty((0, 4)), np.array([]), np.array([])
-
-        # Usually normalized ymin, xmin, ymax, xmax
-        if np.max(boxes) <= 1.5:
-            y1 = boxes[:, 0] * orig_h
-            x1 = boxes[:, 1] * orig_w
-            y2 = boxes[:, 2] * orig_h
-            x2 = boxes[:, 3] * orig_w
-        else:
-            y1 = boxes[:, 0]
-            x1 = boxes[:, 1]
-            y2 = boxes[:, 2]
-            x2 = boxes[:, 3]
-
-        final_boxes = np.stack([
-            np.clip(x1, 0, orig_w - 1),
-            np.clip(y1, 0, orig_h - 1),
-            np.clip(x2, 0, orig_w - 1),
-            np.clip(y2, 0, orig_h - 1),
-        ], axis=1)
-
-        keep = nms(final_boxes, scores, self.iou_thres)
-        return final_boxes[keep], scores[keep], classes[keep]
-
-    def try_decode_yolo_matrix(self, output, orig_w, orig_h, ratio, pad_x, pad_y):
+    def decode_yolov8_output(self, output, orig_w, orig_h, ratio, pad_x, pad_y):
         pred = np.squeeze(output)
-        if pred.ndim != 2:
-            return None
 
-        # Bring to [N, C]
-        if pred.shape[0] in (84, 85) and pred.shape[1] > 20:
+        if pred.ndim != 2:
+            raise RuntimeError(f"Unexpected output shape after squeeze: {pred.shape}")
+
+        if pred.shape[0] in (84, 85) and pred.shape[1] > 100:
             pred = pred.T
         elif pred.shape[1] in (84, 85):
             pass
         else:
-            return None
+            raise RuntimeError(f"Unsupported YOLOv8 output shape: {pred.shape}")
 
-        if pred.shape[1] == 84:
-            boxes_xywh = pred[:, :4]
-            class_scores = pred[:, 4:]
-            class_ids = np.argmax(class_scores, axis=1)
-            scores = class_scores[np.arange(len(class_scores)), class_ids]
-        elif pred.shape[1] == 85:
-            boxes_xywh = pred[:, :4]
-            objectness = pred[:, 4]
-            class_scores = pred[:, 5:]
-            class_ids = np.argmax(class_scores, axis=1)
-            scores = objectness * class_scores[np.arange(len(class_scores)), class_ids]
-        else:
-            return None
+        boxes_xywh = pred[:, :4]
+        class_scores = pred[:, 4:]
+
+        class_ids = np.argmax(class_scores, axis=1)
+        scores = class_scores[np.arange(len(class_scores)), class_ids]
 
         mask = scores >= self.conf_thres
         boxes_xywh = boxes_xywh[mask]
@@ -317,17 +211,10 @@ class YoloV8EdgeTPU:
         if len(boxes_xywh) == 0:
             return np.empty((0, 4)), np.array([]), np.array([])
 
-        # Heuristic: some exports output normalized xywh, others in input-pixel space.
-        if np.max(np.abs(boxes_xywh[:, :4])) <= 2.0:
-            x = boxes_xywh[:, 0] * self.in_w
-            y = boxes_xywh[:, 1] * self.in_h
-            w = boxes_xywh[:, 2] * self.in_w
-            h = boxes_xywh[:, 3] * self.in_h
-        else:
-            x = boxes_xywh[:, 0]
-            y = boxes_xywh[:, 1]
-            w = boxes_xywh[:, 2]
-            h = boxes_xywh[:, 3]
+        x = boxes_xywh[:, 0]
+        y = boxes_xywh[:, 1]
+        w = boxes_xywh[:, 2]
+        h = boxes_xywh[:, 3]
 
         x1 = x - w / 2
         y1 = y - h / 2
@@ -339,12 +226,12 @@ class YoloV8EdgeTPU:
         x2 = (x2 - pad_x) / ratio
         y2 = (y2 - pad_y) / ratio
 
-        boxes = np.stack([
-            np.clip(x1, 0, orig_w - 1),
-            np.clip(y1, 0, orig_h - 1),
-            np.clip(x2, 0, orig_w - 1),
-            np.clip(y2, 0, orig_h - 1),
-        ], axis=1)
+        x1 = np.clip(x1, 0, orig_w - 1)
+        y1 = np.clip(y1, 0, orig_h - 1)
+        x2 = np.clip(x2, 0, orig_w - 1)
+        y2 = np.clip(y2, 0, orig_h - 1)
+
+        boxes = np.stack([x1, y1, x2, y2], axis=1)
 
         final_boxes = []
         final_scores = []
@@ -355,6 +242,7 @@ class YoloV8EdgeTPU:
             cls_boxes = boxes[inds]
             cls_scores = scores[inds]
             keep = nms(cls_boxes, cls_scores, self.iou_thres)
+
             final_boxes.append(cls_boxes[keep])
             final_scores.append(cls_scores[keep])
             final_class_ids.append(np.full(len(keep), cls, dtype=np.int32))
@@ -370,17 +258,59 @@ class YoloV8EdgeTPU:
 
 
 def draw_detections(frame, boxes, scores, class_ids, labels):
+    ax1, ay1, ax2, ay2 = DETECTION_AREA
+
+    # Draw the area box
+    cv2.rectangle(frame, (ax1, ay1), (ax2, ay2), (255, 0, 0), 2)
+    cv2.putText(
+        frame,
+        "Detection Area",
+        (ax1, max(20, ay1 - 10)),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.6,
+        (255, 0, 0),
+        2,
+        cv2.LINE_AA,
+    )
+
     for box, score, cls_id in zip(boxes, scores, class_ids):
         x1, y1, x2, y2 = box.astype(int)
-        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+
+        # Center point of detected object
+        cx = (x1 + x2) // 2
+        cy = (y1 + y2) // 2
+
+        # Check whether center is inside the detection area
+        inside_area = ax1 <= cx <= ax2 and ay1 <= cy <= ay2
+
+        color = (0, 0, 255) if inside_area else (0, 255, 0)
+
+        cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+        cv2.circle(frame, (cx, cy), 4, color, -1)
 
         cls_name = labels[int(cls_id)] if 0 <= int(cls_id) < len(labels) else str(int(cls_id))
-        text = f"{cls_name} {score:.2f}"
+        status = "IN AREA" if inside_area else "OUTSIDE"
+        text = f"{cls_name} {score:.2f} {status}"
 
         (tw, th), baseline = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
         y_text = max(y1, th + 4)
-        cv2.rectangle(frame, (x1, y_text - th - 4), (x1 + tw, y_text + baseline - 4), (0, 255, 0), -1)
-        cv2.putText(frame, text, (x1, y_text - 2), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1, cv2.LINE_AA)
+        cv2.rectangle(
+            frame,
+            (x1, y_text - th - 4),
+            (x1 + tw, y_text + baseline - 4),
+            color,
+            -1
+        )
+        cv2.putText(
+            frame,
+            text,
+            (x1, y_text - 2),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            (0, 0, 0),
+            1,
+            cv2.LINE_AA
+        )
 
 
 class StreamState:
@@ -389,7 +319,6 @@ class StreamState:
         self.frame_jpeg = None
         self.fps = 0.0
         self.running = True
-        self.last_count = 0
 
 
 def make_app(state: StreamState):
@@ -421,7 +350,10 @@ def make_app(state: StreamState):
                 time.sleep(0.01)
                 continue
 
-            yield b"--frame\r\n" b"Content-Type: image/jpeg\r\n\r\n" + frame + b"\r\n"
+            yield (
+                b"--frame\r\n"
+                b"Content-Type: image/jpeg\r\n\r\n" + frame + b"\r\n"
+            )
             time.sleep(0.01)
 
     @app.route("/video_feed")
@@ -436,8 +368,6 @@ def camera_worker(args, state: StreamState):
         model_path=args.model,
         conf_thres=args.conf,
         iou_thres=args.iou,
-        labels=COCO80,
-        debug=args.debug,
     )
 
     cap = cv2.VideoCapture(args.camera)
@@ -463,10 +393,17 @@ def camera_worker(args, state: StreamState):
         prev_t = now
         fps = 1.0 / dt if dt > 0 else 0.0
         state.fps = fps
-        state.last_count = len(boxes)
 
-        cv2.putText(frame, f"FPS: {fps:.1f}", (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2, cv2.LINE_AA)
-        cv2.putText(frame, f"Detections: {len(boxes)}", (10, 52), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2, cv2.LINE_AA)
+        cv2.putText(
+            frame,
+            f"FPS: {fps:.1f}",
+            (10, 25),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (0, 255, 255),
+            2,
+            cv2.LINE_AA,
+        )
 
         ok, jpeg = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
         if ok:
@@ -478,15 +415,15 @@ def camera_worker(args, state: StreamState):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", default="yolov8n_full_integer_quant_edgetpu.tflite", help="Path to EdgeTPU YOLOv8 TFLite model")
-    parser.add_argument("--camera", type=int, default=0, help="USB camera index")
-    parser.add_argument("--width", type=int, default=640, help="Camera width")
-    parser.add_argument("--height", type=int, default=480, help="Camera height")
+    parser.add_argument("--model", default="yolov8n_full_integer_quant_edgetpu.tflite",
+                        help="Path to EdgeTPU YOLOv8 TFLite model")
+    parser.add_argument("--camera", type=int, default=1, help="USB camera index")
+    parser.add_argument("--width", type=int, default=320, help="Camera width")
+    parser.add_argument("--height", type=int, default=320, help="Camera height")
     parser.add_argument("--host", default="0.0.0.0", help="Flask bind host")
     parser.add_argument("--port", type=int, default=5000, help="Flask port")
-    parser.add_argument("--conf", type=float, default=0.15, help="Confidence threshold")
+    parser.add_argument("--conf", type=float, default=0.25, help="Confidence threshold")
     parser.add_argument("--iou", type=float, default=0.45, help="NMS IoU threshold")
-    parser.add_argument("--debug", action="store_true", help="Print input/output tensor info")
     args = parser.parse_args()
 
     if not os.path.exists(args.model):
