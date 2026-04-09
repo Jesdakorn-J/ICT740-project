@@ -31,19 +31,24 @@ COCO80 = [
     "toothbrush"
 ]
 
-DETECTION_AREA = (110, 110, 280, 315)
+# Bigger test box
+DETECTION_AREA = (60, 80, 320, 420)  # x1, y1, x2, y2
 
-# Keep only simple useful classes
+# Only keep basic useful classes
 ALLOWED_CLASSES = {
     "person",
     "bottle",
     "cup",
     "chair",
+    "couch",
     "laptop",
     "cell phone",
+    "book",
+    "tv",
 }
 
-MAX_RESULTS_IN_AREA = 3
+# Show only the best result inside the blue box
+MAX_RESULTS_IN_AREA = 1
 
 
 def get_ip_addresses() -> List[Tuple[str, str]]:
@@ -134,7 +139,7 @@ def nms(boxes: np.ndarray, scores: np.ndarray, iou_thres: float) -> List[int]:
 
 
 class YoloV8TFLite:
-    def __init__(self, model_path: str, conf_thres=0.25, iou_thres=0.45, try_tpu=True):
+    def __init__(self, model_path: str, conf_thres=0.12, iou_thres=0.45, try_tpu=True):
         self.model_path = model_path
         self.conf_thres = conf_thres
         self.iou_thres = iou_thres
@@ -490,7 +495,8 @@ def camera_worker(args, state: StreamState):
         )
 
         print("Detections in area:", [
-            (COCO80[int(c)], round(float(s), 3)) for s, c in zip(area_scores, area_class_ids)
+            (COCO80[int(c)], round(float(s), 3))
+            for s, c in zip(area_scores, area_class_ids)
         ])
 
         draw_detections(frame, area_boxes, area_scores, area_class_ids, COCO80)
@@ -529,7 +535,7 @@ def main():
     parser.add_argument("--height", type=int, default=480, help="Camera height")
     parser.add_argument("--host", default="0.0.0.0", help="Flask bind host")
     parser.add_argument("--port", type=int, default=5000, help="Flask port")
-    parser.add_argument("--conf", type=float, default=0.25, help="Confidence threshold")
+    parser.add_argument("--conf", type=float, default=0.12, help="Confidence threshold")
     parser.add_argument("--iou", type=float, default=0.45, help="NMS IoU threshold")
     parser.add_argument("--cpu-only", action="store_true", help="Disable EdgeTPU and use CPU only")
     args = parser.parse_args()
