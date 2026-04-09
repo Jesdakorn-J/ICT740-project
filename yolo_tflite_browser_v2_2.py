@@ -31,8 +31,19 @@ COCO80 = [
     "toothbrush"
 ]
 
-# x1, y1, x2, y2
 DETECTION_AREA = (110, 110, 280, 315)
+
+# Keep only simple useful classes
+ALLOWED_CLASSES = {
+    "person",
+    "bottle",
+    "cup",
+    "chair",
+    "laptop",
+    "cell phone",
+}
+
+MAX_RESULTS_IN_AREA = 3
 
 
 def get_ip_addresses() -> List[Tuple[str, str]]:
@@ -123,7 +134,7 @@ def nms(boxes: np.ndarray, scores: np.ndarray, iou_thres: float) -> List[int]:
 
 
 class YoloV8TFLite:
-    def __init__(self, model_path: str, conf_thres=0.01, iou_thres=0.45, try_tpu=True):
+    def __init__(self, model_path: str, conf_thres=0.25, iou_thres=0.45, try_tpu=True):
         self.model_path = model_path
         self.conf_thres = conf_thres
         self.iou_thres = iou_thres
@@ -161,7 +172,7 @@ class YoloV8TFLite:
         self.output_quant = self.output_details[0]["quantization"]
 
         print(f"Model input size: {self.in_w}x{self.in_h}")
-        print(f"Input dtype: {self.input_dtype}, output dtype: {self.output_details[0]['dtype']}")
+        print(f"Confidence threshold: {self.conf_thres}")
 
     def preprocess(self, frame: np.ndarray):
         img, ratio, pad_x, pad_y = letterbox(frame, (self.in_h, self.in_w))
@@ -194,10 +205,7 @@ class YoloV8TFLite:
             else:
                 out = out.astype(np.float32)
 
-        boxes, scores, class_ids = self.decode_yolov8_output(
-            out, orig_w, orig_h, ratio, pad_x, pad_y
-        )
-        return boxes, scores, class_ids
+        return self.decode_yolov8_output(out, orig_w, orig_h, ratio, pad_x, pad_y)
 
     def decode_yolov8_output(self, output, orig_w, orig_h, ratio, pad_x, pad_y):
         pred = np.squeeze(output)
@@ -272,6 +280,28 @@ class YoloV8TFLite:
         )
 
 
+def filter_allowed_classes(boxes, scores, class_ids, labels):
+    filtered_boxes = []
+    filtered_scores = []
+    filtered_class_ids = []
+
+    for box, score, cls_id in zip(boxes, scores, class_ids):
+        cls_name = labels[int(cls_id)] if 0 <= int(cls_id) < len(labels) else str(int(cls_id))
+        if cls_name in ALLOWED_CLASSES:
+            filtered_boxes.append(box)
+            filtered_scores.append(score)
+            filtered_class_ids.append(cls_id)
+
+    if filtered_boxes:
+        return (
+            np.array(filtered_boxes),
+            np.array(filtered_scores),
+            np.array(filtered_class_ids),
+        )
+
+    return np.empty((0, 4)), np.array([]), np.array([])
+
+
 def filter_detections_by_area(boxes, scores, class_ids, area):
     ax1, ay1, ax2, ay2 = area
 
@@ -294,9 +324,9 @@ def filter_detections_by_area(boxes, scores, class_ids, area):
 
     if filtered_boxes:
         order = np.argsort(filtered_scores)[::-1]
-        filtered_boxes = np.array(filtered_boxes)[order]
-        filtered_scores = np.array(filtered_scores)[order]
-        filtered_class_ids = np.array(filtered_class_ids)[order]
+        filtered_boxes = np.array(filtered_boxes)[order][:MAX_RESULTS_IN_AREA]
+        filtered_scores = np.array(filtered_scores)[order][:MAX_RESULTS_IN_AREA]
+        filtered_class_ids = np.array(filtered_class_ids)[order][:MAX_RESULTS_IN_AREA]
         return filtered_boxes, filtered_scores, filtered_class_ids
 
     return np.empty((0, 4)), np.array([]), np.array([])
@@ -450,13 +480,15 @@ def camera_worker(args, state: StreamState):
             continue
 
         all_boxes, all_scores, all_class_ids = model.infer(frame)
+
+        all_boxes, all_scores, all_class_ids = filter_allowed_classes(
+            all_boxes, all_scores, all_class_ids, COCO80
+        )
+
         area_boxes, area_scores, area_class_ids = filter_detections_by_area(
             all_boxes, all_scores, all_class_ids, DETECTION_AREA
         )
 
-        print("ALL detections:", [
-            (COCO80[int(c)], round(float(s), 3)) for s, c in zip(all_scores, all_class_ids)
-        ])
         print("Detections in area:", [
             (COCO80[int(c)], round(float(s), 3)) for s, c in zip(area_scores, area_class_ids)
         ])
@@ -497,7 +529,7 @@ def main():
     parser.add_argument("--height", type=int, default=480, help="Camera height")
     parser.add_argument("--host", default="0.0.0.0", help="Flask bind host")
     parser.add_argument("--port", type=int, default=5000, help="Flask port")
-    parser.add_argument("--conf", type=float, default=0.01, help="Confidence threshold")
+    parser.add_argument("--conf", type=float, default=0.25, help="Confidence threshold")
     parser.add_argument("--iou", type=float, default=0.45, help="NMS IoU threshold")
     parser.add_argument("--cpu-only", action="store_true", help="Disable EdgeTPU and use CPU only")
     args = parser.parse_args()
