@@ -31,8 +31,7 @@ COCO80 = [
     "toothbrush"
 ]
 
-# x1, y1, x2, y2
-DETECTION_AREA = (80, 80, 260, 260)
+DETECTION_AREA = (80, 80, 260, 260)  # x1, y1, x2, y2
 
 
 def get_ip_addresses() -> List[Tuple[str, str]]:
@@ -122,7 +121,7 @@ def nms(boxes: np.ndarray, scores: np.ndarray, iou_thres: float) -> List[int]:
 
 
 class YoloV8EdgeTPU:
-    def __init__(self, model_path: str, conf_thres=0.25, iou_thres=0.45):
+    def __init__(self, model_path: str, conf_thres=0.15, iou_thres=0.45):
         self.model_path = model_path
         self.conf_thres = conf_thres
         self.iou_thres = iou_thres
@@ -266,10 +265,13 @@ def filter_detections_by_area(boxes, scores, class_ids, area):
     for box, score, cls_id in zip(boxes, scores, class_ids):
         x1, y1, x2, y2 = box.astype(int)
 
-        cx = (x1 + x2) // 2
-        cy = (y1 + y2) // 2
+        # keep detection if any part overlaps the blue box
+        overlap_x1 = max(x1, ax1)
+        overlap_y1 = max(y1, ay1)
+        overlap_x2 = min(x2, ax2)
+        overlap_y2 = min(y2, ay2)
 
-        if ax1 <= cx <= ax2 and ay1 <= cy <= ay2:
+        if overlap_x2 > overlap_x1 and overlap_y2 > overlap_y1:
             filtered_boxes.append(box)
             filtered_scores.append(score)
             filtered_class_ids.append(cls_id)
@@ -287,7 +289,6 @@ def filter_detections_by_area(boxes, scores, class_ids, area):
 def draw_detections(frame, boxes, scores, class_ids, labels):
     ax1, ay1, ax2, ay2 = DETECTION_AREA
 
-    # Blue detection box
     cv2.rectangle(frame, (ax1, ay1), (ax2, ay2), (255, 0, 0), 2)
     cv2.putText(
         frame,
@@ -300,26 +301,47 @@ def draw_detections(frame, boxes, scores, class_ids, labels):
         cv2.LINE_AA
     )
 
-    # Draw detections
-    for i, (box, score, cls_id) in enumerate(zip(boxes, scores, class_ids)):
-        x1, y1, x2, y2 = box.astype(int)
+    results = []
 
-        # red bounding box on object
+    for box, score, cls_id in zip(boxes, scores, class_ids):
+        x1, y1, x2, y2 = box.astype(int)
         cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
 
         cls_name = labels[int(cls_id)] if 0 <= int(cls_id) < len(labels) else str(int(cls_id))
-        text = f"{cls_name} {score:.2f}"
+        results.append(f"{cls_name} {score:.2f}")
 
-        # GREEN label box INSIDE blue area
+    # draw result list inside the blue box
+    if results:
+        for i, text in enumerate(results):
+            tx = ax1 + 8
+            ty = ay1 + 28 + (i * 24)
+
+            if ty > ay2 - 8:
+                break
+
+            (tw, th), baseline = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 1)
+            cv2.rectangle(
+                frame,
+                (tx - 3, ty - th - 5),
+                (tx + tw + 3, ty + baseline - 2),
+                (0, 255, 0),
+                -1
+            )
+            cv2.putText(
+                frame,
+                text,
+                (tx, ty - 2),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.55,
+                (0, 0, 0),
+                1,
+                cv2.LINE_AA
+            )
+    else:
+        text = "No object detected"
         tx = ax1 + 8
-        ty = ay1 + 28 + (i * 24)
-
-        # stop if too many labels to fit inside the blue box
-        if ty > ay2 - 8:
-            break
-
+        ty = ay1 + 28
         (tw, th), baseline = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 1)
-
         cv2.rectangle(
             frame,
             (tx - 3, ty - th - 5),
@@ -452,7 +474,7 @@ def main():
     parser.add_argument("--height", type=int, default=320, help="Camera height")
     parser.add_argument("--host", default="0.0.0.0", help="Flask bind host")
     parser.add_argument("--port", type=int, default=5000, help="Flask port")
-    parser.add_argument("--conf", type=float, default=0.25, help="Confidence threshold")
+    parser.add_argument("--conf", type=float, default=0.15, help="Confidence threshold")
     parser.add_argument("--iou", type=float, default=0.45, help="NMS IoU threshold")
     args = parser.parse_args()
 
