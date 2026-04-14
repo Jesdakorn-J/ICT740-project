@@ -159,7 +159,7 @@ def decode_yolo_raw(interpreter, frame_shape, labels, threshold=0.25, top_k=20):
         return []
 
     #bug might be here
-    print(boxes_xywh[0])
+    # print(boxes_xywh[0])
 
     in_w, in_h = input_size(interpreter)
     frame_h, frame_w = frame_shape[:2]
@@ -222,6 +222,7 @@ def draw_detections(frame, detections, fps=None):
     h, w = frame.shape[:2]
     for det in detections:
         x1, y1, x2, y2 = det["bbox"]
+        print(x1,y1,x2,y2)
         x1 = int(x1 * w)
         y1 = int(y1 * h)
         x2 = int(x2 * w)
