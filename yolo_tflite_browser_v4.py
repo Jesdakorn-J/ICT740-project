@@ -139,6 +139,7 @@ def decode_yolo_raw(interpreter, frame_shape, labels, threshold=0.25, top_k=20):
         return []
 
     boxes_xywh = output[:, :4]
+    print(boxes_xywh)
     class_scores = output[:, 4:]
 
     if class_scores.ndim == 1:
