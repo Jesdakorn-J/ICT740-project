@@ -171,6 +171,11 @@ def decode_yolo_raw(interpreter, frame_shape, labels, threshold=0.25, top_k=20):
     width = boxes_xywh[:, 2]
     height = boxes_xywh[:, 3]
 
+    print("x_center",x_center[0])
+    print("y_center",y_center[0])
+    print("width",width[0])
+    print("height",height[0])
+
     x1 = (x_center - width / 2.0) * scale_x
     y1 = (y_center - height / 2.0) * scale_y
     x2 = (x_center + width / 2.0) * scale_x
