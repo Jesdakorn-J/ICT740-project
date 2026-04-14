@@ -17,7 +17,7 @@ MODEL_PATH = "package_watcher_bv1_full_integer_quant_edgetpu.tflite"
 LABELS_PATH = "labels.txt"   # set to None if you do not have labels
 CAMERA_INDEX = 1
 THRESHOLD = 0.3
-TOP_K = 20
+TOP_K = 5
 PORT = 5000
 MAX_FPS = 15
 JPEG_QUALITY = 80
@@ -139,7 +139,9 @@ def decode_yolo_raw(interpreter, frame_shape, labels, threshold=0.25, top_k=20):
         return []
 
     boxes_xywh = output[:, :4]
-    print(boxes_xywh)
+    #find box mislocation bug
+    
+
     class_scores = output[:, 4:]
 
     if class_scores.ndim == 1:
@@ -155,6 +157,9 @@ def decode_yolo_raw(interpreter, frame_shape, labels, threshold=0.25, top_k=20):
 
     if len(scores) == 0:
         return []
+
+    #bug might be here
+    print(boxes_xywh[0])
 
     in_w, in_h = input_size(interpreter)
     frame_h, frame_w = frame_shape[:2]
