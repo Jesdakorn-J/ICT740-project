@@ -235,11 +235,11 @@ def draw_detections(frame, detections, fps=None):
     for det in detections:
         x1, y1, x2, y2 = det["bbox"]
         print(x1,y1,x2,y2)
-        x1 = int(x1 * w)
-        y1 = int(y1 * h)
-        x2 = int(x2 * w)
-        y2 = int(y2 * h)
-        print(x1,y1,x2,y2)
+        # x1 = int(x1 * w)
+        # y1 = int(y1 * h)
+        # x2 = int(x2 * w)
+        # y2 = int(y2 * h)
+        # print(x1,y1,x2,y2)
         label = f'{det["label"]} {det["score"]:.2f}'
 
         cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
