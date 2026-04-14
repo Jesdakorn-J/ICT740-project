@@ -213,13 +213,18 @@ def decode_ssd_postprocess(interpreter, frame_shape, labels, threshold=0.25, top
 
 
 def draw_detections(frame, detections, fps=None):
+    h, w = frame.shape[:2]
     for det in detections:
-        x1, y1, x2, y2 = det["bbox"].astype(int)
+        x1, y1, x2, y2 = det["bbox"]
+        x1 = int(x1 * w)
+        y1 = int(y1 * h)
+        x2 = int(x2 * w)
+        y2 = int(y2 * h)
         print(x1,y1,x2,y2)
         label = f'{det["label"]} {det["score"]:.2f}'
 
         cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-        cv2.rectangle(frame, (10, 10), (20, 20), (0, 255, 0), 2)
+        # cv2.rectangle(frame, (10, 10), (20, 20), (0, 255, 0), 2)
 
         text_y = y1 - 10 if y1 > 20 else y1 + 25
         cv2.putText(
@@ -234,7 +239,7 @@ def draw_detections(frame, detections, fps=None):
         )
         cv2.putText(
             frame,
-            label,
+            "hello",
             (10, 10),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.7,
