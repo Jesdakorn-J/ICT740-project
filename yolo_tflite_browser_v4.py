@@ -192,7 +192,7 @@ def decode_yolo_raw(interpreter, frame_shape, labels, threshold=0.25, top_k=20):
             "id": cls_id,
             "label": labels.get(cls_id, str(cls_id)),
         })
-    print(detections["bbox"].boxes[0])
+    print(detections[0])
     return detections
 
 
