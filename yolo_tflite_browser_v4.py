@@ -176,10 +176,10 @@ def decode_yolo_raw(interpreter, frame_shape, labels, threshold=0.25, top_k=20):
     print("width",width[0])
     print("height",height[0])
 
-    x1 = (x_center - width / 2.0) * scale_x
-    y1 = (y_center - height / 2.0) * scale_y
-    x2 = (x_center + width / 2.0) * scale_x
-    y2 = (y_center + height / 2.0) * scale_y
+    x1 = (x_center - width / 2.0) * frame_w
+    y1 = (y_center - height / 2.0) * frame_h
+    x2 = (x_center + width / 2.0) * frame_w
+    y2 = (y_center + height / 2.0) * frame_h
 
     print("x1",x1[0])
     print("y1",y1[0])
