@@ -358,7 +358,7 @@ def index():
             padding: 20px;
           }}
           img {{
-            width: min(95vw, 1100px);
+            width: min(95vw, 800px);
             border: 2px solid #444;
             border-radius: 8px;
           }}
