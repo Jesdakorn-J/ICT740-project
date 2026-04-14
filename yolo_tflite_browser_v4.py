@@ -215,6 +215,7 @@ def decode_ssd_postprocess(interpreter, frame_shape, labels, threshold=0.25, top
 def draw_detections(frame, detections, fps=None):
     for det in detections:
         x1, y1, x2, y2 = det["bbox"].astype(int)
+        print(x1,y1,x2,y2)
         label = f'{det["label"]} {det["score"]:.2f}'
 
         cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
@@ -302,7 +303,7 @@ def camera_worker():
 
         if detections:
             latest_text = ", ".join(f'{d["label"]} {d["score"]:.2f}' for d in detections)
-            print("Detected:", latest_text)
+            # print("Detected:", latest_text, detections)
         else:
             latest_text = "No objects detected"
             print(latest_text)
