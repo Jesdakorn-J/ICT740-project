@@ -176,12 +176,13 @@ def decode_yolo_raw(interpreter, frame_shape, labels, threshold=0.25, top_k=20):
     x2 = (x_center + width / 2.0) * scale_x
     y2 = (y_center + height / 2.0) * scale_y
 
+
     boxes = np.stack([x1, y1, x2, y2], axis=1)
     boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]], 0, frame_w - 1)
     boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, frame_h - 1)
 
     selected = nms_xyxy(boxes, scores, iou_threshold=0.45)[:top_k]
-
+    
     detections = []
     for i in selected:
         cls_id = int(class_ids[i])
@@ -191,6 +192,7 @@ def decode_yolo_raw(interpreter, frame_shape, labels, threshold=0.25, top_k=20):
             "id": cls_id,
             "label": labels.get(cls_id, str(cls_id)),
         })
+    print(detections["bbox"].boxes[0])
     return detections
 
 
@@ -246,7 +248,7 @@ def draw_detections(frame, detections, fps=None):
         )
         cv2.putText(
             frame,
-            "hello",
+            "v4",
             (10, 10),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.7,
