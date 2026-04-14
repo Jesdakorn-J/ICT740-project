@@ -181,6 +181,11 @@ def decode_yolo_raw(interpreter, frame_shape, labels, threshold=0.25, top_k=20):
     x2 = (x_center + width / 2.0) * scale_x
     y2 = (y_center + height / 2.0) * scale_y
 
+    print("x1",x1[0])
+    print("y1",y1[0])
+    print("x2",x2[0])
+    print("y2",y2[0])
+
 
     boxes = np.stack([x1, y1, x2, y2], axis=1)
     boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]], 0, frame_w - 1)
