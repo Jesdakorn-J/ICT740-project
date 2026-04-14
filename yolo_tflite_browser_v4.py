@@ -397,7 +397,10 @@ def index():
         <div class="meta">Model: {MODEL_PATH}</div>
         <div class="meta">Decoder: {model_type}</div>
         <div class="meta">model input size: {input_size(interpreter)}</div>
-        <div class="meta">model input size: {cap.size}</div>
+        <div class="meta">camera input width: {int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+}</div>
+        <div class="meta">camera input height: {int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+}</div>
         <img src="/video_feed" />
       </body>
     </html>
