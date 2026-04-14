@@ -219,12 +219,23 @@ def draw_detections(frame, detections, fps=None):
         label = f'{det["label"]} {det["score"]:.2f}'
 
         cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+        cv2.rectangle(frame, (0.5, 0.5), (0.8, 0.8), (0, 255, 0), 2)
 
         text_y = y1 - 10 if y1 > 20 else y1 + 25
         cv2.putText(
             frame,
             label,
             (x1, text_y),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (0, 255, 0),
+            2,
+            cv2.LINE_AA,
+        )
+        cv2.putText(
+            frame,
+            label,
+            (0.5, 0.5),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.7,
             (0, 255, 0),
