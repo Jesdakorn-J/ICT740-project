@@ -396,6 +396,8 @@ def index():
         <h1>Coral Edge TPU Live Stream</h1>
         <div class="meta">Model: {MODEL_PATH}</div>
         <div class="meta">Decoder: {model_type}</div>
+        <div class="meta">model input size: {input_size(interpreter)}</div>
+        <div class="meta">model input size: {cap.size}</div>
         <img src="/video_feed" />
       </body>
     </html>
