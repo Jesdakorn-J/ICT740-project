@@ -214,7 +214,7 @@ def decode_ssd_postprocess(interpreter, frame_shape, labels, threshold=0.25, top
 
 def draw_detections(frame, detections, fps=None):
     for det in detections:
-        x1, y1, x2, y2 = det["bbox"].astype(int)
+        x1, y1, x2, y2 = det["bbox"].astype(float)
         print(x1,y1,x2,y2)
         label = f'{det["label"]} {det["score"]:.2f}'
 
