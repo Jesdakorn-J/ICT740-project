@@ -15,7 +15,7 @@ from pycoral.utils.edgetpu import make_interpreter
 
 MODEL_PATH = "package_watcher_bv1_full_integer_quant_edgetpu.tflite"
 LABELS_PATH = "labels.txt"   # set to None if you do not have labels
-CAMERA_INDEX = 0
+CAMERA_INDEX = 1
 THRESHOLD = 0.3
 TOP_K = 20
 PORT = 5000
