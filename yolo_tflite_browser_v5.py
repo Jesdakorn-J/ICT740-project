@@ -16,13 +16,29 @@ from pycoral.utils.edgetpu import make_interpreter
 MODEL_PATH = "package_watcher_bv1_full_integer_quant_edgetpu.tflite"
 LABELS_PATH = "labels.txt"   # set to None if you do not have labels
 CAMERA_INDEX = 1
-CAMERA_WIDTH = 320
-CAMERA_HEIGHT = 320
-THRESHOLD = 0.3
+THRESHOLD = 0.6
 TOP_K = 5
 PORT = 5000
 MAX_FPS = 15
 JPEG_QUALITY = 80
+
+#add area detection
+AREA_X1 = 300
+AREA_X2 = 450
+AREA_Y1 = 300
+AREA_Y2 = 450
+
+
+def filter_area(detections):
+    filtered_detections = []
+    for d in detections:
+        x1, y1, x2, y2 = d["bbox"]
+        cx = (x1 + x2) / 2
+        cy = (y1 + y2) / 2
+
+        if AREA_X1 <= cx <= AREA_X2 and AREA_Y1 <= cy <= AREA_Y2:
+            filtered_detections.append(d)
+    return filtered_detections
 
 
 def get_local_ip():
@@ -58,25 +74,24 @@ def prepare_input(frame_bgr, interpreter):
     in_w, in_h = input_size(interpreter)
 
     frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
-    if frame_rgb.shape[1] != in_w or frame_rgb.shape[0] != in_h:
-        frame_rgb = cv2.resize(frame_rgb, (in_w, in_h))
+    resized = cv2.resize(frame_rgb, (in_w, in_h))
 
     input_detail = interpreter.get_input_details()[0]
     dtype = input_detail["dtype"]
     scale, zero_point = input_detail.get("quantization", (0.0, 0))
 
     if dtype == np.float32:
-        tensor = frame_rgb.astype(np.float32) / 255.0
+        tensor = resized.astype(np.float32) / 255.0
     elif dtype == np.uint8:
-        tensor = frame_rgb.astype(np.uint8)
+        tensor = resized.astype(np.uint8)
     elif dtype == np.int8:
         if scale and scale > 0:
-            normalized = frame_rgb.astype(np.float32) / 255.0
+            normalized = resized.astype(np.float32) / 255.0
             tensor = np.round(normalized / scale + zero_point).astype(np.int8)
         else:
-            tensor = (frame_rgb.astype(np.int16) - 128).clip(-128, 127).astype(np.int8)
+            tensor = (resized.astype(np.int16) - 128).clip(-128, 127).astype(np.int8)
     else:
-        tensor = frame_rgb.astype(dtype)
+        tensor = resized.astype(dtype)
 
     common.set_input(interpreter, tensor)
 
@@ -142,6 +157,9 @@ def decode_yolo_raw(interpreter, frame_shape, labels, threshold=0.25, top_k=20):
         return []
 
     boxes_xywh = output[:, :4]
+    #find box mislocation bug
+    
+
     class_scores = output[:, 4:]
 
     if class_scores.ndim == 1:
@@ -158,27 +176,41 @@ def decode_yolo_raw(interpreter, frame_shape, labels, threshold=0.25, top_k=20):
     if len(scores) == 0:
         return []
 
-    in_w, in_h = input_size(interpreter)
+    #bug might be here
+    # print(boxes_xywh[0])
+
+    # in_w, in_h = input_size(interpreter)
     frame_h, frame_w = frame_shape[:2]
-    scale_x = frame_w / float(in_w)
-    scale_y = frame_h / float(in_h)
+    # scale_x = frame_w / float(in_w)
+    # scale_y = frame_h / float(in_h)
 
     x_center = boxes_xywh[:, 0]
     y_center = boxes_xywh[:, 1]
     width = boxes_xywh[:, 2]
     height = boxes_xywh[:, 3]
 
-    x1 = (x_center - width / 2.0) * scale_x
-    y1 = (y_center - height / 2.0) * scale_y
-    x2 = (x_center + width / 2.0) * scale_x
-    y2 = (y_center + height / 2.0) * scale_y
+    print("x_center",x_center[0])
+    print("y_center",y_center[0])
+    print("width",width[0])
+    print("height",height[0])
+
+    x1 = (x_center - width / 2.0) * frame_w
+    y1 = (y_center - height / 2.0) * frame_h
+    x2 = (x_center + width / 2.0) * frame_w
+    y2 = (y_center + height / 2.0) * frame_h
+
+    print("x1",x1[0])
+    print("y1",y1[0])
+    print("x2",x2[0])
+    print("y2",y2[0])
+
 
     boxes = np.stack([x1, y1, x2, y2], axis=1)
     boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]], 0, frame_w - 1)
     boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, frame_h - 1)
 
     selected = nms_xyxy(boxes, scores, iou_threshold=0.45)[:top_k]
-
+    
     detections = []
     for i in selected:
         cls_id = int(class_ids[i])
@@ -188,6 +220,11 @@ def decode_yolo_raw(interpreter, frame_shape, labels, threshold=0.25, top_k=20):
             "id": cls_id,
             "label": labels.get(cls_id, str(cls_id)),
         })
+
+    # print(detections[0])
+
+    detections = filter_area(detections)
+
     return detections
 
 
@@ -216,11 +253,19 @@ def decode_ssd_postprocess(interpreter, frame_shape, labels, threshold=0.25, top
 
 
 def draw_detections(frame, detections, fps=None):
+    h, w = frame.shape[:2]
     for det in detections:
         x1, y1, x2, y2 = det["bbox"].astype(int)
+        print(x1,y1,x2,y2)
+        # x1 = int(x1 * w)
+        # y1 = int(y1 * h)
+        # x2 = int(x2 * w)
+        # y2 = int(y2 * h)
+        # print(x1,y1,x2,y2)
         label = f'{det["label"]} {det["score"]:.2f}'
 
         cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+        # cv2.rectangle(frame, (10, 10), (20, 20), (0, 255, 0), 2)
 
         text_y = y1 - 10 if y1 > 20 else y1 + 25
         cv2.putText(
@@ -233,6 +278,20 @@ def draw_detections(frame, detections, fps=None):
             2,
             cv2.LINE_AA,
         )
+        cv2.putText(
+            frame,
+            "v4",
+            (10, 10),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (0, 255, 0),
+            2,
+            cv2.LINE_AA,
+        )
+
+    cv2.rectangle(frame, (AREA_X1, AREA_Y1), (AREA_X2, AREA_Y2), (255, 0, 0), 2)
+    cv2.putText(frame, "Detection Area", (AREA_X1, AREA_Y1 - 10),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
 
     if fps is not None:
         cv2.putText(
@@ -256,8 +315,6 @@ labels = load_labels(LABELS_PATH)
 model_type = detect_model_type(interpreter)
 
 cap = cv2.VideoCapture(CAMERA_INDEX)
-cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
-cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
 if not cap.isOpened():
     raise RuntimeError(f"Could not open camera index {CAMERA_INDEX}")
 
@@ -285,8 +342,6 @@ def camera_worker():
             time.sleep(0.05)
             continue
 
-        frame = cv2.resize(frame, (CAMERA_WIDTH, CAMERA_HEIGHT))
-
         prepare_input(frame, interpreter)
         interpreter.invoke()
 
@@ -309,6 +364,7 @@ def camera_worker():
 
         if detections:
             latest_text = ", ".join(f'{d["label"]} {d["score"]:.2f}' for d in detections)
+            # print("Detected:", latest_text, detections)
         else:
             latest_text = "No objects detected"
             print(latest_text)
@@ -364,8 +420,7 @@ def index():
             padding: 20px;
           }}
           img {{
-            width: min(95vw, 640px);
-            image-rendering: pixelated;
+            width: min(95vw, 800px);
             border: 2px solid #444;
             border-radius: 8px;
           }}
@@ -379,10 +434,11 @@ def index():
         <h1>Coral Edge TPU Live Stream</h1>
         <div class="meta">Model: {MODEL_PATH}</div>
         <div class="meta">Decoder: {model_type}</div>
-        <div class="meta">Model input size: {input_size(interpreter)}</div>
-        <div class="meta">Requested camera size: {CAMERA_WIDTH}x{CAMERA_HEIGHT}</div>
-        <div class="meta">Actual camera size reported by OpenCV: {int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))}</div>
-        <div class="meta">Frame sent to model: {CAMERA_WIDTH}x{CAMERA_HEIGHT}</div>
+        <div class="meta">model input size: {input_size(interpreter)}</div>
+        <div class="meta">camera input width: {int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+}</div>
+        <div class="meta">camera input height: {int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+}</div>
         <img src="/video_feed" />
       </body>
     </html>
@@ -405,6 +461,5 @@ if __name__ == "__main__":
     print("Open the stream in your browser:")
     print(f"  Local:   http://127.0.0.1:{PORT}")
     print(f"  Network: http://{ip}:{PORT}")
-    print(f"Camera frames are resized to {CAMERA_WIDTH}x{CAMERA_HEIGHT} before inference.")
 
     app.run(host="0.0.0.0", port=PORT, debug=False, threaded=True)

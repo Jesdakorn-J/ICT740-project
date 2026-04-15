@@ -22,6 +22,7 @@ PORT = 5000
 MAX_FPS = 15
 JPEG_QUALITY = 80
 
+#test model edgetpu and proper browser app
 
 def get_local_ip():
     try:
