@@ -268,6 +268,7 @@ model_type = detect_model_type(interpreter)
 cap = cv2.VideoCapture(CAMERA_INDEX)
 if not cap.isOpened():
     raise RuntimeError(f"Could not open camera index {CAMERA_INDEX}")
+    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
 app = Flask(__name__)
 
