@@ -23,6 +23,7 @@ MAX_FPS = 15
 JPEG_QUALITY = 80
 
 #add area detection
+#test with "package_watcher_bv1_full_integer_quant_edgetpu.tflite"
 AREA_X1 = 300
 AREA_X2 = 450
 AREA_Y1 = 300
