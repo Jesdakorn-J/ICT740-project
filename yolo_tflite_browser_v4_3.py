@@ -26,6 +26,16 @@ TOP_K = 5
 PORT = 5000
 MAX_FPS = 15
 JPEG_QUALITY = 80
+VERSION_NUMBER = "V4_3"
+
+tracker = PackageTracker(
+    package_label="package",
+    detection_threshold=THRESHOLD,
+    delivery_zone=None,
+)
+
+sender = TelegramSender()
+monitor = PackageMonitor(tracker, sender)
 
 def get_local_ip():
     try:
@@ -161,8 +171,6 @@ def decode_yolo_raw(interpreter, frame_shape, labels, threshold=0.25, top_k=20):
 
     in_w, in_h = input_size(interpreter)
     frame_h, frame_w = frame_shape[:2]
-    scale_x = frame_w / float(in_w)
-    scale_y = frame_h / float(in_h)
 
     x_center = boxes_xywh[:, 0]
     y_center = boxes_xywh[:, 1]
@@ -221,11 +229,11 @@ def draw_detections(frame, detections, fps=None):
 
     cv2.putText(
             frame,
-            "v4_2",
-            (10, 20),
+            VERSION_NUMBER,
+            (w-40, 20),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.7,
-            (0, 255, 0),
+            (255, 255, 0),
             2,
             cv2.LINE_AA,
         )
@@ -263,8 +271,7 @@ def draw_detections(frame, detections, fps=None):
 
     return frame
 
-# --- Initialize Telegram Notifier ---
-notifier = TelegramNotifier(frames_to_confirm=5)
+
 
 interpreter = make_interpreter(MODEL_PATH)
 interpreter.allocate_tensors()
@@ -338,8 +345,9 @@ def camera_worker():
         annotated = draw_detections(frame.copy(), detections, fps=fps_value)
         
         # --- Send to Telegram ---
+        # the monitor only supports one box per frame.
         currently_detected = len(detections) > 0
-        notifier.process_frame(annotated, currently_detected)
+        monitor.process_frame(annotated, currently_detected)
         # ------------------------
 
         ok, buffer = cv2.imencode(".jpg", annotated, [int(cv2.IMWRITE_JPEG_QUALITY), JPEG_QUALITY])
