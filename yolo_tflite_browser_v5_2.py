@@ -13,6 +13,10 @@ from pycoral.adapters.detect import get_objects
 from pycoral.utils.dataset import read_label_file
 from pycoral.utils.edgetpu import make_interpreter
 
+from package_tracker import PackageTracker
+from telegram_sender import TelegramSender
+from package_monitor import PackageMonitor
+
 MODEL_PATH = "package_watcher_bv2_full_integer_quant_edgetpu.tflite"
 LABELS_PATH = "labels.txt"   # set to None if you do not have labels
 CAMERA_INDEX = 1
@@ -28,6 +32,15 @@ AREA_X1 = 300
 AREA_X2 = 450
 AREA_Y1 = 300
 AREA_Y2 = 450
+
+tracker = PackageTracker(
+    package_label="package",
+    detection_threshold=THRESHOLD,
+    delivery_zone=(0.5,0.5,0.8,0.8),
+)
+
+sender = TelegramSender()
+monitor = PackageMonitor(tracker, sender)
 
 
 def filter_area(detections):
@@ -378,6 +391,10 @@ def camera_worker():
             last_fps_time = now
 
         annotated = draw_detections(frame.copy(), detections, fps=fps_value)
+        
+        currently_detected = len(detections) > 0
+        monitor.process_frame(annotated, currently_detected)
+
         ok, buffer = cv2.imencode(".jpg", annotated, [int(cv2.IMWRITE_JPEG_QUALITY), JPEG_QUALITY])
         if ok:
             with frame_lock:
