@@ -237,7 +237,7 @@ def draw_detections(frame, detections, fps=None):
             2,
             cv2.LINE_AA,
         )
-    cv2.rectangle(frame, (0.5*w, 0.5*h), (0.8*w, 0.8*h), (0, 255, 0), 2)
+    cv2.rectangle(frame, (int(0.5*w), int(0.5*h)), (int(0.8*w), int(0.8*h)), (255, 105, 0), 2)
     
     for det in detections:
         x1, y1, x2, y2 = det["bbox"].astype(int)
