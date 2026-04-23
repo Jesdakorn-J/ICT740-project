@@ -31,7 +31,7 @@ VERSION_NUMBER = "V4_3"
 tracker = PackageTracker(
     package_label="package",
     detection_threshold=THRESHOLD,
-    delivery_zone=None,
+    delivery_zone=(0.5,0.5,0.8,0.8),
 )
 
 sender = TelegramSender()
