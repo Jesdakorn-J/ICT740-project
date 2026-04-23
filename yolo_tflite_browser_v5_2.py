@@ -13,8 +13,8 @@ from pycoral.adapters.detect import get_objects
 from pycoral.utils.dataset import read_label_file
 from pycoral.utils.edgetpu import make_interpreter
 
-MODEL_PATH = "yolov8n_full_integer_quant_edgetpu.tflite"
-LABELS_PATH = "yolov8n_coco_labels.txt"   # set to None if you do not have labels
+MODEL_PATH = "package_watcher_bv2_full_integer_quant_edgetpu.tflite"
+LABELS_PATH = "labels.txt"   # set to None if you do not have labels
 CAMERA_INDEX = 1
 THRESHOLD = 0.6
 TOP_K = 5
