@@ -203,20 +203,20 @@ def decode_yolo_raw(interpreter, frame_shape, labels, threshold=0.25, top_k=20):
     width = boxes_xywh[:, 2]
     height = boxes_xywh[:, 3]
 
-    print("x_center",x_center[0])
-    print("y_center",y_center[0])
-    print("width",width[0])
-    print("height",height[0])
+    # print("x_center",x_center[0])
+    # print("y_center",y_center[0])
+    # print("width",width[0])
+    # print("height",height[0])
 
     x1 = (x_center - width / 2.0) * frame_w
     y1 = (y_center - height / 2.0) * frame_h
     x2 = (x_center + width / 2.0) * frame_w
     y2 = (y_center + height / 2.0) * frame_h
 
-    print("x1",x1[0])
-    print("y1",y1[0])
-    print("x2",x2[0])
-    print("y2",y2[0])
+    # print("x1",x1[0])
+    # print("y1",y1[0])
+    # print("x2",x2[0])
+    # print("y2",y2[0])
 
 
     boxes = np.stack([x1, y1, x2, y2], axis=1)
@@ -270,7 +270,7 @@ def draw_detections(frame, detections, fps=None):
     h, w = frame.shape[:2]
     for det in detections:
         x1, y1, x2, y2 = det["bbox"].astype(int)
-        print(x1,y1,x2,y2)
+        # print(x1,y1,x2,y2)
         # x1 = int(x1 * w)
         # y1 = int(y1 * h)
         # x2 = int(x2 * w)
@@ -381,7 +381,7 @@ def camera_worker():
             # print("Detected:", latest_text, detections)
         else:
             latest_text = "No objects detected"
-            print(latest_text)
+            # print(latest_text)
 
         fps_counter += 1
         now = time.time()
