@@ -268,6 +268,18 @@ def decode_ssd_postprocess(interpreter, frame_shape, labels, threshold=0.25, top
 
 def draw_detections(frame, detections, fps=None):
     h, w = frame.shape[:2]
+
+    cv2.putText(
+            frame,
+            "v5",
+            (10, 60),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (255, 255, 0),
+            2,
+            cv2.LINE_AA,
+        )
+    
     for det in detections:
         x1, y1, x2, y2 = det["bbox"].astype(int)
         # print(x1,y1,x2,y2)
@@ -292,16 +304,7 @@ def draw_detections(frame, detections, fps=None):
             2,
             cv2.LINE_AA,
         )
-        cv2.putText(
-            frame,
-            "v5",
-            (10, 40),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.7,
-            (0, 255, 0),
-            2,
-            cv2.LINE_AA,
-        )
+        
 
     cv2.rectangle(frame, (AREA_X1, AREA_Y1), (AREA_X2, AREA_Y2), (255, 0, 0), 2)
     cv2.putText(frame, "Detection Area", (AREA_X1, AREA_Y1 - 10),
