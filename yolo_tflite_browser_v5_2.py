@@ -294,8 +294,8 @@ def draw_detections(frame, detections, fps=None):
         )
         cv2.putText(
             frame,
-            "v4",
-            (10, 10),
+            "v5",
+            (10, 40),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.7,
             (0, 255, 0),
