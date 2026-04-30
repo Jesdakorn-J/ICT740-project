@@ -31,7 +31,7 @@ VERSION_NUMBER = "V4_3"
 tracker = PackageTracker(
     package_label="package",
     detection_threshold=THRESHOLD,
-    delivery_zone=(0.5,0.5,0.8,0.8),
+    delivery_zone=None,
 )
 
 sender = TelegramSender()
@@ -230,7 +230,7 @@ def draw_detections(frame, detections, fps=None):
     cv2.putText(
             frame,
             VERSION_NUMBER,
-            (w-40, 20),
+            (10, 60),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.7,
             (255, 255, 0),
