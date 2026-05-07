@@ -4,9 +4,9 @@
 <p>1.board			          :white_check_mark:</p>
 <p>2.USB camera          :white_check_mark:</p>
 <p>3.model              :white_check_mark:</p>
-<p>4.area detection      </p>
-<p>5.send notification    </p>
-<p>6.write medium blog    </p>
+<p>4.area detection      :white_check_mark:</p>
+<p>5.send notification    :white_check_mark:</p>
+<p>6.write medium blog    :white_check_mark:</p>
 
 # current works
 <p>yolo_tflite_browser_v1.py</p>
