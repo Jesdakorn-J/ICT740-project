@@ -16,7 +16,9 @@
 <p>yolo_tflite_browser_v3_fixed.py</p>
 <img src="pic/v3_fixed.jpg" alt="-" width="600">
 <p>yolo_tflite_browser_v4_3.py</p>
-<p>yolo_tflite_browser_v5_2.py</p>
+<img src="pic/v4_3.png" alt="-" width="600">
+<p>yolo_tflite_browser_v5.py</p>
+<img src="pic/v5.png" alt="-" width="600">
 <p>usb_cam_browser.py</p>
 <img src="pic/coral_pic.png" alt="-" width="600">
 <p>from running an example</p>
